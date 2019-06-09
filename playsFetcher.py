@@ -1,5 +1,5 @@
 from keys import apiKey
-import requests, sys
+import requests, sys, datetime, time
 
 BEATMAPSFILE = "topBeatmaps.txt"
 DIFFICULTYTHRESHOLD = 6
@@ -24,31 +24,37 @@ def readTopBeatmaps():
     lastUpdated = '1000-01-01'
     beatmaps = []
     errorLines = []
-    with open(BEATMAPSFILE,"r") as beatmapsFile:
-        for line in beatmapsFile:
-            line = line.strip()
-            if "lastUpdated" in line:
-                print(line.split("\t"))
-                lastUpdated = line.split("\t")[1]
-                continue
-            lineComponents = line.split("\t")
-            if(len(lineComponents) == 3):
-                beatmaps.append((lineComponents[0], lineComponents[1], lineComponents[2]))
-            else:
-                errorLines.append(line)
+    try:
+        with open(BEATMAPSFILE,"r") as beatmapsFile:
+            for line in beatmapsFile:
+                line = line.strip()
+                if "lastUpdated" in line:
+                    print(line.split("\t"))
+                    lastUpdated = line.split("\t")[1]
+                    lastUpdated = lastUpdated.split(" ")[0]
+                    continue
+                lineComponents = line.split("\t")
+                if(len(lineComponents) == 4):
+                    beatmaps.append((lineComponents[0], lineComponents[1], lineComponents[2], lineComponents[3]))
+                else:
+                    errorLines.append(line)
 
-    print("Beatmaps read from file:", len(beatmaps))
-    if(len(errorLines) > 0):
-        print("Number of read errors:", len(errorLines))
-        print("Read errors lines:", errorLines)
-        sys.exit("Errors in " + BEATMAPSFILE + ", please fix them before running this program again")
-
+        print("Beatmaps read from file:", len(beatmaps))
+        if(len(errorLines) > 0):
+            print("Number of read errors:", len(errorLines))
+            print("Read errors lines:", errorLines)
+            sys.exit("Errors in " + BEATMAPSFILE + ", please fix them before running this program again")
+    except SystemExit:
+        sys.exit()
+    except:    
+        print("File doesn't exist, new one will be created")
     return beatmaps, lastUpdated
     #beatmapsFile.close()
 
 def syncBeatmapsFile(oldBeatmaps, newBeatmaps, lastUpdated):
     allBeatmaps = oldBeatmaps + newBeatmaps
     noDuplicatesSet = set(allBeatmaps)
+    newMaps = list(noDuplicatesSet - set(oldBeatmaps))
     noDuplicateBeatmaps = list(noDuplicatesSet)
     print("Syncing beatmaps file")
     with open(BEATMAPSFILE, "w+") as beatmapsFile:
@@ -56,11 +62,15 @@ def syncBeatmapsFile(oldBeatmaps, newBeatmaps, lastUpdated):
         for beatmap in noDuplicateBeatmaps:
             beatmapsFile.write("\t".join(beatmap))
             beatmapsFile.write("\n")
-    print("Syncing done for beatmaps of date up to " + lastUpdated)
+    newBeatmapsCount = len(newMaps)
+    print("Added", newBeatmapsCount, "beatmaps to", BEATMAPSFILE, "dated up to " + lastUpdated)
+    for beatmap in newMaps:
+        print(beatmap)
     return noDuplicateBeatmaps
 
 def retreiveTopBeatmaps(since):
     #Retreives beatmaps greater than DIFFICULTYTHRESHOLD star rating from the 'since' date using the osu API
+    print("Retreiving latest beatmaps from osu")
     newBeatmaps = []
     parameters = {
         "k": apiKey,
@@ -77,10 +87,13 @@ def retreiveTopBeatmaps(since):
 
     beatmapsJSON = response.json()
     for beatmap in beatmapsJSON:
-        if(float(beatmap['difficultyrating']) > DIFFICULTYTHRESHOLD):
-            newBeatmaps.append((beatmap['title'], beatmap['beatmap_id'], beatmap['difficultyrating']))
+        if(float(beatmap['difficultyrating']) > DIFFICULTYTHRESHOLD and beatmap['approved'] != "4"):
+            #If star rating > DIFFICULTYTHRESHOLD and it's not loved, removed the second check to include loved maps
+            newBeatmaps.append((beatmap['title'], beatmap['version'], beatmap['beatmap_id'], beatmap['difficultyrating']))
 
-    lastDate = beatmapsJSON[-1]['approved_date']
+    lastDate = beatmapsJSON[-1]['approved_date'].split(" ")[0]
+
+    time.sleep(1) #Sleep to prevent overloading osu servers
     return newBeatmaps, lastDate
    # print(response.json())
 
@@ -88,7 +101,16 @@ def retreiveTopBeatmaps(since):
 beatmapIDs = [632241,525910]
 players = ["apple_piez"]
 
+todayUTC = str(datetime.datetime.utcnow()).split(" ")[0]
 #fetchBestPlays(beatmapIDs, players)
+
 [readBeatmaps, lastUpdated] = readTopBeatmaps()
-[newBeatmaps, lastUpdated] = retreiveTopBeatmaps(lastUpdated)
-readBeatmaps = syncBeatmapsFile(readBeatmaps, newBeatmaps, lastUpdated)
+newBeatmaps = []
+
+readCounter = 0
+while lastUpdated < todayUTC:
+    [newBeatmaps, lastUpdated] = retreiveTopBeatmaps(lastUpdated)
+    readBeatmaps = syncBeatmapsFile(readBeatmaps, newBeatmaps, lastUpdated)
+    readCounter += 1
+    if readCounter > 200:
+        break
