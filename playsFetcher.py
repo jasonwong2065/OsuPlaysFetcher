@@ -1,8 +1,12 @@
 from keys import apiKey
 import requests, sys, datetime, time
 
-BEATMAPSFILE = "topBeatmaps.txt"
+BEATMAPSFILE = "topBeatmaps.txt" #Delete the file or change the name to made another beatmaps file
+SCORESFILE = "scores.txt"
 DIFFICULTYTHRESHOLD = 6
+REFRESHSCORES = True
+MODE = 1  #(0 = osu!, 1 = Taiko, 2 = CtB, 3 = osu!mania).
+USERNAMES = ["Jaye"] #Who to calculate scores for
 
 def fetchBestPlays(beatmapIDs, players):
     for player in players:
@@ -11,7 +15,7 @@ def fetchBestPlays(beatmapIDs, players):
                 "k": apiKey,
                 "b": beatmap,
                 "u": player,
-                "m": 1,
+                "m": MODE,
                 "limit": 1
                 }
             option = "get_scores"
@@ -29,7 +33,6 @@ def readTopBeatmaps():
             for line in beatmapsFile:
                 line = line.strip()
                 if "lastUpdated" in line:
-                    print(line.split("\t"))
                     lastUpdated = line.split("\t")[1]
                     lastUpdated = lastUpdated.split(" ")[0]
                     continue
@@ -39,7 +42,7 @@ def readTopBeatmaps():
                 else:
                     errorLines.append(line)
 
-        print("Beatmaps read from file:", len(beatmaps))
+        print("Beatmaps read from", BEATMAPSFILE, ":", len(beatmaps))
         if(len(errorLines) > 0):
             print("Number of read errors:", len(errorLines))
             print("Read errors lines:", errorLines)
@@ -47,10 +50,54 @@ def readTopBeatmaps():
     except SystemExit:
         sys.exit()
     except:    
-        print("File doesn't exist, new one will be created")
+        print(BEATMAPSFILE, "doesn't exist, creating it")
     return beatmaps, lastUpdated
-    #beatmapsFile.close()
 
+
+def readScores():
+    #Read cached user scores
+    scores = []
+    errorLines = []
+    try:
+        with open(SCORESFILE,"r") as scoresFile:
+            for line in scoresFile:
+                line = line.strip()
+                lineComponents = line.split("\t")
+                if(len(lineComponents) == 3 and lineComponents[0] in USERNAMES):
+                    (username, beatmapID, passStatus) = (lineComponents[0], lineComponents[1], lineComponents[2])
+                    scores.append((username, beatmapID, passStatus))
+                else:
+                    errorLines.append(line)
+
+        print("Scores read from", SCORESFILE, ":", len(scores))
+        if(len(errorLines) > 0):
+            print("Number of read errors:", len(errorLines))
+            print("Read errors lines:", errorLines)
+            sys.exit("Errors in " + SCORESFILE + ", please fix them before running this program again")
+    except SystemExit:
+        sys.exit()
+    except:    
+        print(SCORESFILE, "doesn't exist, creating it")
+    return scores
+
+def getMissingScores(beatmaps, oldScores):
+    #Finds which scores are needed to complete the spreadsheet.
+    allScores = {}
+    for beatmap in beatmaps:
+        for username in USERNAMES:
+            beatmapID = beatmap[2]
+            allScores.add((username, beatmapID))
+
+    missingScores = {}
+    if(REFRESHSCORES):
+        #If force refresh flag is true
+        print("Refreshing scores file", SCORESFILE)
+        missingScores = allScores
+    else:
+        missingScores = allScores - set(oldScores)
+
+    return list(missingScores)
+        
 def syncBeatmapsFile(oldBeatmaps, newBeatmaps, lastUpdated):
     allBeatmaps = oldBeatmaps + newBeatmaps
     noDuplicatesSet = set(allBeatmaps)
@@ -75,7 +122,7 @@ def retreiveTopBeatmaps(since):
     parameters = {
         "k": apiKey,
         "since": since, #Use the latest date to sync beatmaps
-        "m": 1,
+        "m": MODE,
     #    "limit": 3
     }
     option = "get_beatmaps"
@@ -87,7 +134,7 @@ def retreiveTopBeatmaps(since):
 
     beatmapsJSON = response.json()
     for beatmap in beatmapsJSON:
-        if(float(beatmap['difficultyrating']) > DIFFICULTYTHRESHOLD and beatmap['approved'] != "4"):
+        if(float(beatmap['difficultyrating']) > DIFFICULTYTHRESHOLD and beatmap['approved'] in ["1","2"]):
             #If star rating > DIFFICULTYTHRESHOLD and it's not loved, removed the second check to include loved maps
             newBeatmaps.append((beatmap['title'], beatmap['version'], beatmap['beatmap_id'], beatmap['difficultyrating']))
 
@@ -95,22 +142,34 @@ def retreiveTopBeatmaps(since):
 
     time.sleep(1) #Sleep to prevent overloading osu servers
     return newBeatmaps, lastDate
-   # print(response.json())
 
-
-beatmapIDs = [632241,525910]
 players = ["apple_piez"]
 
-todayUTC = str(datetime.datetime.utcnow()).split(" ")[0]
 #fetchBestPlays(beatmapIDs, players)
+
+###
+# Reads the beatmaps cache
+###
 
 [readBeatmaps, lastUpdated] = readTopBeatmaps()
 newBeatmaps = []
 
+###
+# Retreive any new beatmaps from osu if beatmaps file is outdated
+###
 readCounter = 0
+todayUTC = str(datetime.datetime.utcnow()).split(" ")[0]
 while lastUpdated < todayUTC:
+    #Retreive all top beatmaps
     [newBeatmaps, lastUpdated] = retreiveTopBeatmaps(lastUpdated)
     readBeatmaps = syncBeatmapsFile(readBeatmaps, newBeatmaps, lastUpdated)
     readCounter += 1
     if readCounter > 200:
+        #Prevent infinite loops in case there's any
         break
+
+###
+# Reads the players cache for existing scores (note this doesn't automatically update if new highscores are made, set REFRESHSCORES to True to update)
+###
+
+readScores()
