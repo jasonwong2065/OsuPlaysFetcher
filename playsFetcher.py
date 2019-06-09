@@ -28,27 +28,36 @@ def readTopBeatmaps():
         for line in beatmapsFile:
             line = line.strip()
             if "lastUpdated" in line:
-                lastUpdated = line.split(":")[1]
+                print(line.split("\t"))
+                lastUpdated = line.split("\t")[1]
                 continue
             lineComponents = line.split("\t")
-            if(lineComponents.count == 3):
+            if(len(lineComponents) == 3):
                 beatmaps.append((lineComponents[0], lineComponents[1], lineComponents[2]))
             else:
                 errorLines.append(line)
 
     print("Beatmaps read from file:", len(beatmaps))
     if(len(errorLines) > 0):
-        print("Number of read errors:" + len(errorLines))
+        print("Number of read errors:", len(errorLines))
         print("Read errors lines:", errorLines)
         sys.exit("Errors in " + BEATMAPSFILE + ", please fix them before running this program again")
 
     return beatmaps, lastUpdated
     #beatmapsFile.close()
 
-#def syncBeatmapsFile(oldBeatmaps, newBeatmaps, lastUpdated):
-    # 
-    # with open("test", "w+") as beatmapsFile:
-        # for 
+def syncBeatmapsFile(oldBeatmaps, newBeatmaps, lastUpdated):
+    allBeatmaps = oldBeatmaps + newBeatmaps
+    noDuplicatesSet = set(allBeatmaps)
+    noDuplicateBeatmaps = list(noDuplicatesSet)
+    print("Syncing beatmaps file")
+    with open(BEATMAPSFILE, "w+") as beatmapsFile:
+        beatmapsFile.write("lastUpdated\t" + lastUpdated + "\n")
+        for beatmap in noDuplicateBeatmaps:
+            beatmapsFile.write("\t".join(beatmap))
+            beatmapsFile.write("\n")
+    print("Syncing done for beatmaps of date up to " + lastUpdated)
+    return noDuplicateBeatmaps
 
 def retreiveTopBeatmaps(since):
     #Retreives beatmaps greater than DIFFICULTYTHRESHOLD star rating from the 'since' date using the osu API
@@ -82,4 +91,4 @@ players = ["apple_piez"]
 #fetchBestPlays(beatmapIDs, players)
 [readBeatmaps, lastUpdated] = readTopBeatmaps()
 [newBeatmaps, lastUpdated] = retreiveTopBeatmaps(lastUpdated)
-#syncBeatmapsFile(readBeatmaps, newBeatmaps, lastUpdated)
+readBeatmaps = syncBeatmapsFile(readBeatmaps, newBeatmaps, lastUpdated)
